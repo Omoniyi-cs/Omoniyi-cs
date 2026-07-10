@@ -1,0 +1,194 @@
+// ==========================================
+// Markdown case-study loader
+// Intercepts .md project links and renders
+// them in an overlay instead of navigating away.
+// Minimal markdown -> HTML (headings, bold,
+// italics, lists, links, code, paragraphs).
+// ==========================================
+
+document.addEventListener(‘DOMContentLoaded’, () => {
+const overlay = document.createElement(‘div’);
+overlay.id = ‘md-overlay’;
+overlay.innerHTML = `<div class="md-overlay-backdrop"></div> <div class="md-overlay-panel"> <button class="md-overlay-close" aria-label="Close case study">✕</button> <div class="md-overlay-content"></div> </div>`;
+document.body.appendChild(overlay);
+
+```
+injectOverlayStyles();
+
+const backdrop = overlay.querySelector('.md-overlay-backdrop');
+const closeBtn = overlay.querySelector('.md-overlay-close');
+const content = overlay.querySelector('.md-overlay-content');
+
+function closeOverlay() {
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+function openOverlay() {
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+backdrop.addEventListener('click', closeOverlay);
+closeBtn.addEventListener('click', closeOverlay);
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeOverlay();
+});
+
+document.querySelectorAll('a.project-link[href$=".md"]').forEach((link) => {
+    link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const url = link.getAttribute('href');
+        content.innerHTML = '<p class="md-loading">[ loading case study… ]</p>';
+        openOverlay();
+
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('not found');
+            const text = await res.text();
+            content.innerHTML = renderMarkdown(text);
+        } catch (err) {
+            content.innerHTML = `
+                <p class="md-loading">
+                    [ ERROR ] Could not load this case study yet.<br>
+                    Expected file: <code>${url}</code>
+                </p>`;
+        }
+    });
+});
+
+function renderMarkdown(md) {
+    let html = md
+        // escape basic HTML first
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // code blocks ```
+    html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.trim()}</code></pre>`);
+
+    // headings
+    html = html.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
+    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+    // bold / italic
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+    // unordered lists
+    html = html.replace(/^\s*-\s+(.*)$/gim, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
+
+    // paragraphs: wrap remaining lines that aren't already tags
+    html = html
+        .split(/\n{2,}/)
+        .map((block) => {
+            const trimmed = block.trim();
+            if (!trimmed) return '';
+            if (/^<(h\d|ul|pre|li)/.test(trimmed)) return trimmed;
+            return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+        })
+        .join('\n');
+
+    return html;
+}
+
+function injectOverlayStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        #md-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            font-family: var(--font-body, 'Inter', sans-serif);
+        }
+        #md-overlay.open { display: block; }
+        .md-overlay-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(6, 9, 12, 0.75);
+            backdrop-filter: blur(4px);
+        }
+        .md-overlay-panel {
+            position: relative;
+            max-width: 760px;
+            margin: 5vh auto;
+            max-height: 90vh;
+            overflow-y: auto;
+            background: var(--bg-elevated, #FBF8F2);
+            border: 1px solid var(--border-strong, #C9B99B);
+            border-radius: 6px;
+            padding: 48px 52px;
+        }
+        .md-overlay-close {
+            position: sticky;
+            top: 0;
+            float: right;
+            background: var(--bg-primary, #F7F2EA);
+            border: 1px solid var(--border-subtle, #E1D6C2);
+            color: var(--text-primary, #241A18);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+        .md-overlay-content h1, .md-overlay-content h2, .md-overlay-content h3 {
+            color: var(--text-primary, #241A18);
+            font-family: var(--font-display, Georgia, serif);
+            font-weight: 600;
+            margin: 28px 0 14px;
+            line-height: 1.3;
+        }
+        .md-overlay-content h1 { font-size: 1.6rem; color: var(--accent-maroon, #6B1F2A); }
+        .md-overlay-content h2 { font-size: 1.2rem; color: var(--accent-maroon, #6B1F2A); }
+        .md-overlay-content h3 { font-size: 1.05rem; }
+        .md-overlay-content p {
+            color: var(--text-secondary, #5C4F48);
+            margin-bottom: 14px;
+            line-height: 1.75;
+        }
+        .md-overlay-content ul { margin: 0 0 16px 20px; }
+        .md-overlay-content li { color: var(--text-secondary, #5C4F48); margin-bottom: 6px; }
+        .md-overlay-content code {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-primary, #F7F2EA);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: var(--accent-maroon, #6B1F2A);
+        }
+        .md-overlay-content pre {
+            background: var(--bg-primary, #F7F2EA);
+            border: 1px solid var(--border-subtle, #E1D6C2);
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }
+        .md-overlay-content pre code { background: none; padding: 0; }
+        .md-overlay-content a { color: var(--accent-maroon, #6B1F2A); text-decoration: underline; }
+        .md-loading {
+            font-family: var(--font-body, sans-serif);
+            color: var(--text-muted, #948578);
+            font-size: 0.9rem;
+        }
+        @media (max-width: 600px) {
+            .md-overlay-panel { margin: 0; max-height: 100vh; border-radius: 0; padding: 32px 24px; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+```
+
+});
